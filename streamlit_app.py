@@ -8,7 +8,7 @@ import os
 st.set_page_config(page_title="WTB Tracker", layout="wide", page_icon="👟")
 st.title("👟 WTB Tracker – Manual Analysis")
 
-# ─── PERSISTENCE (data saved across reloads) ─────────────────────
+# ─── PERSISTENCE (data survives reload) ──────────────────────────
 DATA_FILE = "wtb_data.json"
 
 if os.path.exists(DATA_FILE):
@@ -47,21 +47,6 @@ def get_target_roi(est_days):
     else:
         return 0.40
 
-# ─── PARSE FULL NAME ─────────────────────────────────────────────
-def parse_full_name(full_name):
-    # Example: "adidas Yeezy Boost 700 V2 Geode UK 8"
-    match = re.search(r'(UK|US)\s*([\d.]+)', full_name, re.IGNORECASE)
-    size = match.group(0) if match else ""
-    name_part = full_name.replace(size, "").strip()
-
-    parts = name_part.split()
-    brand = parts[0] if parts else "Manual"
-    colorway = parts[-1] if len(parts) > 1 else ""
-    model = " ".join(parts[1:-1]) if len(parts) > 2 else " ".join(parts[1:])
-
-    return brand, model, colorway, size
-
-# ─── ANALYZE SALES ───────────────────────────────────────────────
 def analyze_sales(raw_text, sku, brand, model, colorway, size, listed_price, platform, highest_bid):
     prices = []
     lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
@@ -101,9 +86,9 @@ def analyze_sales(raw_text, sku, brand, model, colorway, size, listed_price, pla
 
     return {
         "SKU": sku,
-        "Brand": brand,
-        "Model": model,
-        "Colorway": colorway,
+        "Brand": brand or "Manual",
+        "Model": model or "Manual",
+        "Colorway": colorway or "Manual",
         "Size": size,
         "Listed Price": listed_price,
         "Platform": platform,
@@ -116,27 +101,25 @@ def analyze_sales(raw_text, sku, brand, model, colorway, size, listed_price, pla
         "Est Days to Sell": round(est_days, 1)
     }, None
 
-# ─── ENTRY FORM (Single Full Name Field) ─────────────────────────
+# ─── ENTRY FORM ──────────────────────────────────────────────────
 with st.expander("➕ Add New WTB Entry", expanded=True):
-    full_name = st.text_input("Full Shoe Name (e.g. adidas Yeezy Boost 700 V2 Geode UK 8)", placeholder="adidas Yeezy Boost 700 V2 Geode UK 8")
-
     col1, col2, col3 = st.columns(3)
     with col1:
+        sku = st.text_input("SKU")
+        size = st.text_input("UK Size")
+        brand = st.text_input("Brand")
+        model = st.text_input("Model")
+        colorway = st.text_input("Colorway")
+    with col2:
         platform = st.selectbox("Platform", ["Vinted", "eBay", "Other/Retail"])
         listed_price = st.number_input("Listed Price (£)", min_value=0.0, value=0.0)
-    with col2:
         highest_bid = st.number_input("Highest Bid (£) – optional", min_value=0.0, value=0.0)
-        priority = st.selectbox("Priority", ["Low", "Medium", "High"])
     with col3:
+        priority = st.selectbox("Priority", ["Low", "Medium", "High"])
         raw_sales = st.text_area("Paste Raw StockX Sales Data (required)", height=140)
 
-    if st.button("Parse Name + Analyze & Add"):
-        if full_name and raw_sales:
-            brand, model, colorway, size = parse_full_name(full_name)
-            sku = st.text_input("SKU (optional)", value="")  # optional SKU
-            if not sku:
-                sku = "Manual"
-
+    if st.button("Analyze & Add"):
+        if sku and size and raw_sales:
             row, err = analyze_sales(raw_sales, sku, brand, model, colorway, size, listed_price, platform, highest_bid)
             if err:
                 st.error(err)
@@ -146,9 +129,9 @@ with st.expander("➕ Add New WTB Entry", expanded=True):
                     ignore_index=True
                 )
                 save_data()
-                st.success(f"Added {brand} {model} {size} to {platform}")
+                st.success(f"Added {sku} {size} to {platform}")
         else:
-            st.warning("Paste Full Shoe Name + Sales Data")
+            st.warning("Fill SKU, Size, Platform, Listed Price + paste sales data")
 
 # ─── TABS ────────────────────────────────────────────────────────
 tab_vinted, tab_ebay, tab_other, tab_fast, tab_strong, tab_slow, tab_highmed, tab_dashboard = st.tabs([
@@ -165,36 +148,51 @@ def style_priority(df):
             return ['background-color: #ccffcc'] * len(row)
     return df.style.apply(color_row, axis=1)
 
-for tab, p in zip([tab_vinted, tab_ebay, tab_other], ["Vinted", "eBay", "Other/Retail"]):
-    with tab:
-        st.subheader(p)
-        df = st.session_state.tables[p].sort_values("ROI %", ascending=False)
-        st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"{p}_editor")
+# Vinted
+with tab_vinted:
+    st.subheader("Vinted")
+    df = st.session_state.tables["Vinted"].sort_values("ROI %", ascending=False)
+    st.data_editor(df, num_rows="dynamic", use_container_width=True, key="vinted_editor")
 
-# Fast, Strong, Slower, High+Medium tabs (same as before)
+# eBay
+with tab_ebay:
+    st.subheader("eBay")
+    df = st.session_state.tables["eBay"].sort_values("ROI %", ascending=False)
+    st.data_editor(df, num_rows="dynamic", use_container_width=True, key="ebay_editor")
+
+# Other/Retail
+with tab_other:
+    st.subheader("Other/Retail")
+    df = st.session_state.tables["Other/Retail"].sort_values("ROI %", ascending=False)
+    st.data_editor(df, num_rows="dynamic", use_container_width=True, key="other_editor")
+
+# Fast Movers
 with tab_fast:
     st.subheader("Fast Movers (<15 days + ≥25% ROI)")
     all_df = pd.concat(st.session_state.tables.values(), ignore_index=True)
     fast = all_df[(all_df["Est Days to Sell"] < 15) & (all_df["ROI %"] >= 25)].sort_values("ROI %", ascending=False)
-    st.data_editor(fast, num_rows="dynamic", use_container_width=True)
+    st.data_editor(fast, num_rows="dynamic", use_container_width=True, key="fast_editor")
 
+# Strong Return
 with tab_strong:
     st.subheader("Strong Return (≥30% ROI & <30 days)")
     all_df = pd.concat(st.session_state.tables.values(), ignore_index=True)
     strong = all_df[(all_df["ROI %"] >= 30) & (all_df["Est Days to Sell"] < 30)].sort_values("ROI %", ascending=False)
-    st.data_editor(strong, num_rows="dynamic", use_container_width=True)
+    st.data_editor(strong, num_rows="dynamic", use_container_width=True, key="strong_editor")
 
+# Slower Movers
 with tab_slow:
     st.subheader("Slower Movers (≥30% ROI & >30 days)")
     all_df = pd.concat(st.session_state.tables.values(), ignore_index=True)
     slow = all_df[(all_df["ROI %"] >= 30) & (all_df["Est Days to Sell"] >= 30)].sort_values("ROI %", ascending=False)
-    st.data_editor(slow, num_rows="dynamic", use_container_width=True)
+    st.data_editor(slow, num_rows="dynamic", use_container_width=True, key="slow_editor")
 
+# High + Medium Priority Combined
 with tab_highmed:
     st.subheader("High + Medium Priority SKUs")
     all_df = pd.concat(st.session_state.tables.values(), ignore_index=True)
     highmed = all_df[all_df["Priority"].isin(["High", "Medium"])].sort_values("ROI %", ascending=False)
-    st.data_editor(highmed, num_rows="dynamic", use_container_width=True)
+    st.data_editor(highmed, num_rows="dynamic", use_container_width=True, key="highmed_editor")
 
 # Dashboard
 with tab_dashboard:
@@ -210,8 +208,9 @@ with tab_dashboard:
     cols[2].metric("Medium Priority Cost", f"£{med_cost:,.0f}")
     cols[3].metric("Low Priority Cost", f"£{low_cost:,.0f}")
 
+# Export
 if st.button("Export All Tables to CSV"):
     all_df = pd.concat(st.session_state.tables.values(), ignore_index=True)
     st.download_button("Download CSV", all_df.to_csv(index=False), "wtb_tracker.csv")
 
-st.caption("Paste full name like 'adidas Yeezy Boost 700 V2 Geode UK 8' • Data saved automatically • Priority dropdown with colors")
+st.caption("Data saved automatically • Click trash icon to delete row • Priority dropdown • Tables sorted by highest ROI%")
