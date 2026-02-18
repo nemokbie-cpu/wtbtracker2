@@ -99,7 +99,7 @@ def analyze_sales(raw_text, sku, model_details, size, listed_price, platform, hi
         "Est Days to Sell": round(est_days, 1)
     }, None
 
-# ─── ENTRY FORM (single Model Details field) ─────────────────────
+# ─── ENTRY FORM ──────────────────────────────────────────────────
 with st.expander("➕ Add New WTB Entry", expanded=True):
     col1, col2, col3 = st.columns(3)
     with col1:
