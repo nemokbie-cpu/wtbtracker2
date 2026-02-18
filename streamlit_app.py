@@ -58,8 +58,8 @@ def analyze_sales(raw_text, sku, brand, model, colorway, size, listed_price, pla
     roi_target = get_target_roi(est_days)
     rec_price = round(avg_net / (1 + roi_target), 2) if avg_net > 0 else 0
     roi_pct = round((avg_net - listed_price) / listed_price * 100, 1) if listed_price > 0 else 0
-    payout_on_bid = round(calculate_net(highest_bid), 2) if highest_bid > 0 else 0
-    rec_on_bid = round(payout_on_bid / 1.30, 2) if payout_on_bid > 0 else 0
+
+    roi_on_avg_payout = round((avg_net / listed_price) * 100, 1) if platform == "Other/Retail" and listed_price > 0 else "—"
 
     return {
         "SKU": sku,
@@ -76,8 +76,7 @@ def analyze_sales(raw_text, sku, brand, model, colorway, size, listed_price, pla
         "ROI %": roi_pct,
         "Highest Bid": highest_bid if highest_bid > 0 else "—",
         "Recommended Pay £": rec_price if platform != "Other/Retail" else "—",
-        "ROI on Avg Payout %": round((avg_net / listed_price) * 100, 1) if platform == "Other/Retail" and listed_price > 0 else "—",
-        "Rec on Highest Bid (30%)": rec_on_bid,
+        "ROI on Avg Payout %": roi_on_avg_payout,
         "Est Days to Sell": round(est_days, 1)
     }, None
 
@@ -89,7 +88,7 @@ if "tables" not in st.session_state:
         st.session_state.tables[p] = pd.DataFrame(columns=[
             "SKU", "Brand", "Model", "Colorway", "Size", "Listed Price", "Platform", "Priority",
             "#Sales 120D", "Avg Sale £", "Avg Payout £", "ROI %", "Highest Bid",
-            "Recommended Pay £", "ROI on Avg Payout %", "Rec on Highest Bid (30%)", "Est Days to Sell"
+            "Recommended Pay £", "ROI on Avg Payout %", "Est Days to Sell"
         ])
 
 # ─── ENTRY FORM ──────────────────────────────────────────────────
@@ -106,7 +105,7 @@ with st.expander("➕ Add New WTB Entry", expanded=True):
         listed_price = st.number_input("Listed Price (£)", min_value=0.0, value=0.0)
         highest_bid = st.number_input("Highest Bid (£) – optional", min_value=0.0, value=0.0)
     with col3:
-        priority = st.selectbox("Priority", ["High (Red)", "Medium (Yellow)", "Low (Green)"])
+        priority = st.selectbox("Priority", ["Low", "Medium", "High"])
         raw_sales = st.text_area("Paste Raw StockX Sales Data (required)", height=140)
 
     if st.button("Analyze & Add"):
@@ -125,65 +124,55 @@ with st.expander("➕ Add New WTB Entry", expanded=True):
 
 # ─── TABS ────────────────────────────────────────────────────────
 tab_vinted, tab_ebay, tab_other, tab_fast, tab_strong, tab_slow, tab_dashboard = st.tabs([
-    "Vinted", "eBay", "Other/Retail", "Fast Movers (<15d + ≥25%)", "Strong Return (≥30% <30d)", "Slower Movers (≥30% >30d)", "Dashboard"
+    "Vinted", "eBay", "Other/Retail", "Fast Movers", "Strong Return", "Slower Movers", "Dashboard"
 ])
 
-def style_priority(df):
-    def color_row(row):
-        if row["Priority"] == "High (Red)":
-            return ['background-color: #ffcccc'] * len(row)
-        elif row["Priority"] == "Medium (Yellow)":
-            return ['background-color: #ffffcc'] * len(row)
-        else:
-            return [''] * len(row)
-    return df.style.apply(color_row, axis=1)
-
-# Vinted Tab
+# Vinted
 with tab_vinted:
     st.subheader("Vinted")
     df = st.session_state.tables["Vinted"].sort_values("ROI %", ascending=False)
-    st.dataframe(style_priority(df), use_container_width=True)
+    st.data_editor(df, num_rows="dynamic", use_container_width=True, key="vinted_editor")
 
-# eBay Tab
+# eBay
 with tab_ebay:
     st.subheader("eBay")
     df = st.session_state.tables["eBay"].sort_values("ROI %", ascending=False)
-    st.dataframe(style_priority(df), use_container_width=True)
+    st.data_editor(df, num_rows="dynamic", use_container_width=True, key="ebay_editor")
 
-# Other/Retail Tab
+# Other/Retail
 with tab_other:
     st.subheader("Other/Retail")
     df = st.session_state.tables["Other/Retail"].sort_values("ROI %", ascending=False)
-    st.dataframe(style_priority(df), use_container_width=True)
+    st.data_editor(df, num_rows="dynamic", use_container_width=True, key="other_editor")
 
-# Fast Movers Tab
+# Fast Movers
 with tab_fast:
     st.subheader("Fast Movers (<15 days + ≥25% ROI)")
     all_df = pd.concat(st.session_state.tables.values(), ignore_index=True)
     fast = all_df[(all_df["Est Days to Sell"] < 15) & (all_df["ROI %"] >= 25)].sort_values("ROI %", ascending=False)
-    st.dataframe(style_priority(fast), use_container_width=True)
+    st.data_editor(fast, num_rows="dynamic", use_container_width=True, key="fast_editor")
 
-# Strong Return Tab
+# Strong Return
 with tab_strong:
     st.subheader("Strong Return (≥30% ROI & <30 days)")
     all_df = pd.concat(st.session_state.tables.values(), ignore_index=True)
     strong = all_df[(all_df["ROI %"] >= 30) & (all_df["Est Days to Sell"] < 30)].sort_values("ROI %", ascending=False)
-    st.dataframe(style_priority(strong), use_container_width=True)
+    st.data_editor(strong, num_rows="dynamic", use_container_width=True, key="strong_editor")
 
-# Slower Movers Tab
+# Slower Movers
 with tab_slow:
     st.subheader("Slower Movers (≥30% ROI & >30 days)")
     all_df = pd.concat(st.session_state.tables.values(), ignore_index=True)
     slow = all_df[(all_df["ROI %"] >= 30) & (all_df["Est Days to Sell"] >= 30)].sort_values("ROI %", ascending=False)
-    st.dataframe(style_priority(slow), use_container_width=True)
+    st.data_editor(slow, num_rows="dynamic", use_container_width=True, key="slow_editor")
 
-# Dashboard Tab
+# Dashboard
 with tab_dashboard:
     st.header("📊 Dashboard")
     total = sum(len(df) for df in st.session_state.tables.values())
-    high_cost = sum(df[df["Priority"] == "High (Red)"]["Recommended Pay £"].sum() for df in st.session_state.tables.values() if "Recommended Pay £" in df.columns)
-    med_cost = sum(df[df["Priority"] == "Medium (Yellow)"]["Recommended Pay £"].sum() for df in st.session_state.tables.values() if "Recommended Pay £" in df.columns)
-    low_cost = sum(df[df["Priority"] == "Low (Green)"]["Recommended Pay £"].sum() for df in st.session_state.tables.values() if "Recommended Pay £" in df.columns)
+    high_cost = sum(df[df["Priority"] == "High"]["Recommended Pay £"].sum() for df in st.session_state.tables.values() if "Recommended Pay £" in df.columns)
+    med_cost = sum(df[df["Priority"] == "Medium"]["Recommended Pay £"].sum() for df in st.session_state.tables.values() if "Recommended Pay £" in df.columns)
+    low_cost = sum(df[df["Priority"] == "Low"]["Recommended Pay £"].sum() for df in st.session_state.tables.values() if "Recommended Pay £" in df.columns)
 
     cols = st.columns(4)
     cols[0].metric("Total Items", total)
@@ -196,4 +185,4 @@ if st.button("Export All Tables to CSV"):
     all_df = pd.concat(st.session_state.tables.values(), ignore_index=True)
     st.download_button("Download CSV", all_df.to_csv(index=False), "wtb_tracker.csv")
 
-st.caption("Manual WTB Tracker – Paste sales data for calculations • Tables sorted by ROI% descending • Priority colors applied")
+st.caption("Priority: Low / Medium / High • Click the trash icon in the table to delete rows • Tables sorted by highest ROI%")
