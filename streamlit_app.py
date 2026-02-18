@@ -8,7 +8,7 @@ import os
 st.set_page_config(page_title="WTB Tracker", layout="wide", page_icon="👟")
 st.title("👟 WTB Tracker – Manual Analysis")
 
-# ─── PERSISTENCE (data survives reload) ──────────────────────────
+# ─── PERSISTENCE ─────────────────────────────────────────────────
 DATA_FILE = "wtb_data.json"
 
 if os.path.exists(DATA_FILE):
@@ -47,7 +47,7 @@ def get_target_roi(est_days):
     else:
         return 0.40
 
-def analyze_sales(raw_text, sku, model_details, size, listed_price, platform, highest_bid):
+def analyze_sales(raw_text, sku, model_details, size, listed_price, platform, highest_bid, priority):
     prices = []
     lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
     cutoff = datetime.now() - timedelta(days=120)
@@ -99,24 +99,24 @@ def analyze_sales(raw_text, sku, model_details, size, listed_price, platform, hi
         "Est Days to Sell": round(est_days, 1)
     }, None
 
-# ─── ENTRY FORM ──────────────────────────────────────────────────
+# ─── ENTRY FORM (single Model Details field) ─────────────────────
 with st.expander("➕ Add New WTB Entry", expanded=True):
     col1, col2, col3 = st.columns(3)
     with col1:
         sku = st.text_input("SKU")
         size = st.text_input("UK Size")
+        model_details = st.text_input("Model Details (Brand + Model + Colorway)", placeholder="e.g. adidas Yeezy Boost 700 V2 Geode")
     with col2:
         platform = st.selectbox("Platform", ["Vinted", "eBay", "Other/Retail"])
         listed_price = st.number_input("Listed Price (£)", min_value=0.0, value=0.0)
         highest_bid = st.number_input("Highest Bid (£) – optional", min_value=0.0, value=0.0)
     with col3:
         priority = st.selectbox("Priority", ["Low", "Medium", "High"])
-        model_details = st.text_input("Model Details (Brand + Model + Colorway)", placeholder="e.g. adidas Yeezy Boost 700 V2 Geode")
         raw_sales = st.text_area("Paste Raw StockX Sales Data (required)", height=140)
 
     if st.button("Analyze & Add"):
         if sku and size and raw_sales:
-            row, err = analyze_sales(raw_sales, sku, model_details, size, listed_price, platform, highest_bid)
+            row, err = analyze_sales(raw_sales, sku, model_details, size, listed_price, platform, highest_bid, priority)
             if err:
                 st.error(err)
             else:
