@@ -26,30 +26,74 @@ def calculate_net(price):
 @st.cache_data(ttl=300)
 def fetch_stockx_data(sku, uk_size):
     try:
-        search = requests.get(f"https://api.stockx.com/v2/search?q={sku}", headers=headers, timeout=10).json()
-        if not search.get("products"):
+        st.write("DEBUG: Starting search for SKU:", sku, "Size:", uk_size)
+        
+        # Step 1: Search for product
+        search_url = f"https://api.stockx.com/v2/search?q={sku}"
+        st.write("DEBUG: Search URL:", search_url)
+        search = requests.get(search_url, headers=headers, timeout=10)
+        st.write("DEBUG: Search status code:", search.status_code)
+        
+        if search.status_code != 200:
+            st.error(f"Search failed with status {search.status_code}: {search.text[:200]}...")
             return None
-        product_id = search["products"][0]["id"]
-        name = search["products"][0]["title"]
-        colorway = search["products"][0].get("colorway", "")
 
-        market = requests.get(f"https://api.stockx.com/v2/products/{product_id}", headers=headers, timeout=10).json()
-        highest_bid = market.get("market", {}).get("highestBid", 0)
-        lowest_ask = market.get("market", {}).get("lowestAsk", 0)
-        num_asks = market.get("market", {}).get("numberOfAsks", 0)
+        search_json = search.json()
+        st.write("DEBUG: Search response keys:", list(search_json.keys()))
+        
+        if not search_json.get("products") or len(search_json["products"]) == 0:
+            st.error("No products found for this SKU")
+            return None
 
-        sales_resp = requests.get(
-            f"https://api.stockx.com/v2/products/{product_id}/activity?limit=100&type=sale",
-            headers=headers, timeout=10
-        ).json()
+        # Take first matching product
+        product = search_json["products"][0]
+        product_id = product["id"]
+        name = product["title"]
+        colorway = product.get("colorway", "N/A")
+        
+        st.write("DEBUG: Found product ID:", product_id)
+        st.write("DEBUG: Shoe name:", name)
+        st.write("DEBUG: Colorway:", colorway)
+
+        # Step 2: Get market data (highest bid, lowest ask, # asks)
+        market_url = f"https://api.stockx.com/v2/products/{product_id}"
+        market = requests.get(market_url, headers=headers, timeout=10)
+        st.write("DEBUG: Market status code:", market.status_code)
+        
+        if market.status_code != 200:
+            st.error(f"Market data failed with status {market.status_code}")
+            return None
+
+        market_data = market.json().get("market", {})
+        highest_bid = market_data.get("highestBid", 0)
+        lowest_ask  = market_data.get("lowestAsk", 0)
+        num_asks    = market_data.get("numberOfAsks", 0)
+
+        # Step 3: Get recent sales activity
+        sales_url = f"https://api.stockx.com/v2/products/{product_id}/activity?limit=100&type=sale"
+        sales_resp = requests.get(sales_url, headers=headers, timeout=10)
+        st.write("DEBUG: Sales status code:", sales_resp.status_code)
+        
+        if sales_resp.status_code != 200:
+            st.error(f"Sales fetch failed with status {sales_resp.status_code}")
+            return None
+
+        sales_data = sales_resp.json().get("data", [])
         sales = []
         cutoff = datetime.now() - timedelta(days=120)
-        for item in sales_resp.get("data", []):
+        
+        for item in sales_data:
             try:
-                sale_date = datetime.fromisoformat(item["createdAt"].replace("Z", "+00:00"))
-                if sale_date >= cutoff and item.get("size") == f"UK {uk_size}":
-                    sales.append(float(item["amount"]))
-            except:
+                sale_date_str = item.get("createdAt")
+                if not sale_date_str:
+                    continue
+                sale_date = datetime.fromisoformat(sale_date_str.replace("Z", "+00:00"))
+                if sale_date >= cutoff and str(item.get("size")) == f"UK {uk_size}":
+                    amount = float(item.get("amount", 0))
+                    if amount > 0:
+                        sales.append(amount)
+            except Exception as e:
+                st.write("DEBUG: Skipped sale entry:", str(e))
                 continue
 
         return {
@@ -60,10 +104,10 @@ def fetch_stockx_data(sku, uk_size):
             "num_asks": num_asks,
             "sales_120d": len(sales),
             "avg_sale": round(sum(sales)/len(sales), 2) if sales else 0,
-            "sales_list": sales[:50]
+            "sales_list": sales[:50]  # last 50 for payout calc
         }
     except Exception as e:
-        st.error(f"API error: {str(e)}")
+        st.error(f"Unexpected error in fetch: {str(e)}")
         return None
 
 # ====================== SESSION STATE TABLES ======================
