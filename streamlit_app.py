@@ -7,8 +7,12 @@ import json
 st.set_page_config(page_title="Sneaker WTB Tracker", layout="wide", page_icon="👟")
 st.title("🚀 Sneaker WTB Tracker – StockX Powered")
 
-# ====================== API KEY ======================
-api_key = st.sidebar.text_input("StockX API Key", value="QHeLTV6iWH1zzT0rXj6AS5FmZrF1D2cY1Jgmbvgq", type="password")
+# ====================== SECURE API KEY ======================
+api_key = st.secrets.get("STOCKX_API_KEY", None)
+if not api_key:
+    st.error("StockX API key not found in secrets. Add it in Settings → Secrets as STOCKX_API_KEY")
+    st.stop()
+
 headers = {"Authorization": f"Bearer {api_key}"}
 
 # ====================== PAYOUT FORMULA ======================
@@ -22,7 +26,6 @@ def calculate_net(price):
 @st.cache_data(ttl=300)
 def fetch_stockx_data(sku, uk_size):
     try:
-        # Search for product
         search = requests.get(f"https://api.stockx.com/v2/search?q={sku}", headers=headers, timeout=10).json()
         if not search.get("products"):
             return None
@@ -30,13 +33,11 @@ def fetch_stockx_data(sku, uk_size):
         name = search["products"][0]["title"]
         colorway = search["products"][0].get("colorway", "")
 
-        # Market data
         market = requests.get(f"https://api.stockx.com/v2/products/{product_id}", headers=headers, timeout=10).json()
         highest_bid = market.get("market", {}).get("highestBid", 0)
         lowest_ask = market.get("market", {}).get("lowestAsk", 0)
         num_asks = market.get("market", {}).get("numberOfAsks", 0)
 
-        # Recent sales
         sales_resp = requests.get(
             f"https://api.stockx.com/v2/products/{product_id}/activity?limit=100&type=sale",
             headers=headers, timeout=10
@@ -59,30 +60,25 @@ def fetch_stockx_data(sku, uk_size):
             "num_asks": num_asks,
             "sales_120d": len(sales),
             "avg_sale": round(sum(sales)/len(sales), 2) if sales else 0,
-            "sales_list": sales[:50]  # last 50
+            "sales_list": sales[:50]
         }
-    except:
+    except Exception as e:
+        st.error(f"API error: {str(e)}")
         return None
 
-# ====================== DASHBOARD ======================
-st.sidebar.header("Dashboard")
-total_items = 0
-high_cost = med_cost = low_cost = 0
-vinted_high = ebay_high = other_high = 0
-
-# ====================== TABLES ======================
+# ====================== SESSION STATE TABLES ======================
 platforms = ["Vinted", "eBay", "Other/Retail"]
-tables = {}
-for p in platforms:
-    if p not in st.session_state:
-        st.session_state[p] = pd.DataFrame(columns=[
+
+if "tables" not in st.session_state:
+    st.session_state.tables = {}
+    for p in platforms:
+        st.session_state.tables[p] = pd.DataFrame(columns=[
             "SKU", "Brand", "Model", "Colorway", "Size", "Listed Price", "Priority",
             "#Sales 120D", "Avg Sale £", "Avg Payout £", "ROI %", "Highest Bid", "Lowest Ask",
             "Recommended Pay £", "Est Days to Sell"
         ])
-    tables[p] = st.session_state[p]
 
-# Add new entry form
+# ====================== ADD NEW ENTRY ======================
 with st.expander("➕ Add New WTB Entry", expanded=True):
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -114,7 +110,9 @@ with st.expander("➕ Add New WTB Entry", expanded=True):
                 else:
                     roi_target = 0.40
 
-                rec_price = round(avg_net / (1 + roi_target), 2)
+                rec_price = round(avg_net / (1 + roi_target), 2) if avg_net > 0 else 0
+
+                roi_pct = round((avg_net - listed_price) / listed_price * 100, 1) if listed_price > 0 else 0
 
                 new_row = {
                     "SKU": sku,
@@ -127,75 +125,111 @@ with st.expander("➕ Add New WTB Entry", expanded=True):
                     "#Sales 120D": n,
                     "Avg Sale £": avg_sale,
                     "Avg Payout £": round(avg_net, 2),
-                    "ROI %": round((avg_net - listed_price) / listed_price * 100, 1) if listed_price > 0 else 0,
+                    "ROI %": roi_pct,
                     "Highest Bid": data["highest_bid"],
                     "Lowest Ask": data["lowest_ask"],
                     "Recommended Pay £": rec_price,
                     "Est Days to Sell": round(est_days, 1)
                 }
-                tables[platform] = pd.concat([tables[platform], pd.DataFrame([new_row])], ignore_index=True)
-                st.session_state[platform] = tables[platform]
+                st.session_state.tables[platform] = pd.concat(
+                    [st.session_state.tables[platform], pd.DataFrame([new_row])],
+                    ignore_index=True
+                )
                 st.success(f"Added {sku} {size} to {platform}")
             else:
-                st.error("Could not fetch from StockX")
+                st.error("Could not fetch from StockX – check SKU/size/API key")
         else:
-            st.warning("Fill SKU, Size and API key")
+            st.warning("Fill SKU, Size and ensure API key is set in secrets")
 
-# Display tables
+# ====================== DISPLAY TABLES ======================
 tab1, tab2, tab3 = st.tabs(["Vinted", "eBay", "Other/Retail"])
-for tab, p in zip([tab1, tab2, tab3], platforms):
-    with tab:
-        edited = st.data_editor(
-            tables[p],
-            num_rows="dynamic",
-            use_container_width=True,
-            column_config={
-                "Priority": st.column_config.SelectboxColumn("Priority", options=["High (Red)", "Medium (Yellow)", "Low (Green)"]),
-            }
-        )
-        tables[p] = edited
-        st.session_state[p] = edited
 
-# High Bids Section
+with tab1:
+    edited_vinted = st.data_editor(
+        st.session_state.tables["Vinted"],
+        num_rows="dynamic",
+        use_container_width=True,
+        key="vinted_editor"
+    )
+    st.session_state.tables["Vinted"] = edited_vinted
+
+with tab2:
+    edited_ebay = st.data_editor(
+        st.session_state.tables["eBay"],
+        num_rows="dynamic",
+        use_container_width=True,
+        key="ebay_editor"
+    )
+    st.session_state.tables["eBay"] = edited_ebay
+
+with tab3:
+    edited_other = st.data_editor(
+        st.session_state.tables["Other/Retail"],
+        num_rows="dynamic",
+        use_container_width=True,
+        key="other_editor"
+    )
+    st.session_state.tables["Other/Retail"] = edited_other
+
+# ====================== HIGH BIDS SECTION ======================
 st.header("🔥 High Bids Auto-Tracker")
-high_bids_df = pd.DataFrame()
+high_bids = []
 for p in platforms:
-    df = tables[p].copy()
+    df = st.session_state.tables[p].copy()
     if not df.empty:
-        high_mask = (
+        mask = (
             ((df["ROI %"] > 5) & (p == "Vinted")) |
             ((df["ROI %"] > 15) & (p == "Other/Retail")) |
             (p == "eBay")
         )
-        high_bids_df = pd.concat([high_bids_df, df[high_mask]])
+        high_bids.append(df[mask])
 
-if not high_bids_df.empty:
-    st.dataframe(high_bids_df, use_container_width=True)
+if high_bids:
+    high_df = pd.concat(high_bids, ignore_index=True)
+    st.dataframe(high_df, use_container_width=True)
 else:
-    st.info("No high-bid opportunities yet (add entries first)")
+    st.info("No high-bid opportunities yet – add entries first")
 
-# Dashboard Counters
+# ====================== DASHBOARD ======================
 st.header("📊 Dashboard")
+total_items = sum(len(df) for df in st.session_state.tables.values())
+high_cost = sum(df[df["Priority"] == "High (Red)"]["Recommended Pay £"].sum() for df in st.session_state.tables.values())
+med_cost = sum(df[df["Priority"] == "Medium (Yellow)"]["Recommended Pay £"].sum() for df in st.session_state.tables.values())
+low_cost = sum(df[df["Priority"] == "Low (Green)"]["Recommended Pay £"].sum() for df in st.session_state.tables.values())
+
+vinted_high = st.session_state.tables["Vinted"][st.session_state.tables["Vinted"]["Priority"] == "High (Red)"]["Recommended Pay £"].sum()
+ebay_high = st.session_state.tables["eBay"][st.session_state.tables["eBay"]["Priority"] == "High (Red)"]["Recommended Pay £"].sum()
+other_high = st.session_state.tables["Other/Retail"][st.session_state.tables["Other/Retail"]["Priority"] == "High (Red)"]["Recommended Pay £"].sum()
+
 cols = st.columns(5)
-cols[0].metric("Total Items", sum(len(t) for t in tables.values()))
-cols[1].metric("High Priority Cost", "£" + str(sum(t[t["Priority"] == "High (Red)"]["Recommended Pay £"].sum() for t in tables.values())))
-cols[2].metric("Medium Priority Cost", "£" + str(sum(t[t["Priority"] == "Medium (Yellow)"]["Recommended Pay £"].sum() for t in tables.values())))
-cols[3].metric("Vinted High Cost", "£" + str(tables["Vinted"][tables["Vinted"]["Priority"] == "High (Red)"]["Recommended Pay £"].sum()))
-cols[4].metric("eBay High Cost", "£" + str(tables["eBay"][tables["eBay"]["Priority"] == "High (Red)"]["Recommended Pay £"].sum()))
+cols[0].metric("Total Items", total_items)
+cols[1].metric("High Priority Cost", f"£{high_cost:,.0f}")
+cols[2].metric("Medium Priority Cost", f"£{med_cost:,.0f}")
+cols[3].metric("Vinted High Cost", f"£{vinted_high:,.0f}")
+cols[4].metric("eBay High Cost", f"£{ebay_high:,.0f}")
 
-# Save / Load
-col_save, col_load = st.columns(2)
-with col_save:
+# ====================== BACKUP / RESTORE ======================
+col1, col2 = st.columns(2)
+with col1:
     if st.button("💾 Download All Data"):
-        all_data = {p: tables[p].to_dict() for p in platforms}
-        st.download_button("Download JSON", data=json.dumps(all_data), file_name="wtb_tracker_backup.json")
-with col_load:
-    uploaded = st.file_uploader("Upload backup JSON")
-    if uploaded:
-        data = json.load(uploaded)
-        for p in platforms:
-            if p in data:
-                st.session_state[p] = pd.DataFrame(data[p])
-        st.success("Restored!")
+        all_data = {p: df.to_dict(orient="records") for p, df in st.session_state.tables.items()}
+        st.download_button(
+            label="Download JSON Backup",
+            data=json.dumps(all_data, indent=2),
+            file_name="wtb_tracker_backup.json",
+            mime="application/json"
+        )
 
-st.caption("Made for you with your StockX API key • Minimal & fast")
+with col2:
+    uploaded = st.file_uploader("Upload Backup JSON")
+    if uploaded:
+        try:
+            data = json.load(uploaded)
+            for p in platforms:
+                if p in data:
+                    st.session_state.tables[p] = pd.DataFrame(data[p])
+            st.success("Backup restored!")
+        except:
+            st.error("Invalid backup file")
+
+st.caption("Powered by your StockX API key • Private & secure • Minimal design")
