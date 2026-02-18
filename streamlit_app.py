@@ -99,7 +99,7 @@ def analyze_sales(raw_text, sku, model_details, size, listed_price, platform, hi
         "Est Days to Sell": round(est_days, 1)
     }, None
 
-# ─── ENTRY FORM (single Model Details field) ─────────────────────
+# ─── ENTRY FORM ──────────────────────────────────────────────────
 with st.expander("➕ Add New WTB Entry", expanded=True):
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -182,9 +182,9 @@ with tab_highmed:
 with tab_dashboard:
     st.header("📊 Dashboard")
     total = sum(len(df) for df in st.session_state.tables.values())
-    high_cost = sum(df[df["Priority"] == "High"]["Recommended Pay £"].sum() for df in st.session_state.tables.values() if "Recommended Pay £" in df.columns)
-    med_cost = sum(df[df["Priority"] == "Medium"]["Recommended Pay £"].sum() for df in st.session_state.tables.values() if "Recommended Pay £" in df.columns)
-    low_cost = sum(df[df["Priority"] == "Low"]["Recommended Pay £"].sum() for df in st.session_state.tables.values() if "Recommended Pay £" in df.columns)
+    high_cost = sum(df[df["Priority"] == "High"]["Recommended Pay £"].fillna(0).sum() for df in st.session_state.tables.values() if "Recommended Pay £" in df.columns)
+    med_cost = sum(df[df["Priority"] == "Medium"]["Recommended Pay £"].fillna(0).sum() for df in st.session_state.tables.values() if "Recommended Pay £" in df.columns)
+    low_cost = sum(df[df["Priority"] == "Low"]["Recommended Pay £"].fillna(0).sum() for df in st.session_state.tables.values() if "Recommended Pay £" in df.columns)
 
     cols = st.columns(4)
     cols[0].metric("Total Items", total)
@@ -197,4 +197,4 @@ if st.button("Export All Tables to CSV"):
     all_df = pd.concat(st.session_state.tables.values(), ignore_index=True)
     st.download_button("Download CSV", all_df.to_csv(index=False), "wtb_tracker.csv")
 
-st.caption("Paste full model details in one field • Data saved automatically • Priority dropdown • Tables sorted by highest ROI%")
+st.caption("Paste full model details in one field • Data saved automatically • Priority dropdown with row colors • Delete rows via trash icon • Sorted by highest ROI%")
