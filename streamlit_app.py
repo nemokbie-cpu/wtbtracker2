@@ -52,7 +52,6 @@ def analyze_sales(raw_text, sku, brand, model, colorway, size, listed_price, pla
         return None, "No valid sales in last 120 days."
 
     n = len(prices)
-    avg_sale = sum(prices) / n
     avg_net = sum(calculate_net(p) for p in prices) / n
     est_days = 120 / n if n > 0 else 999
     roi_target = get_target_roi(est_days)
@@ -76,7 +75,7 @@ def analyze_sales(raw_text, sku, brand, model, colorway, size, listed_price, pla
         "Est Days to Sell": round(est_days, 1)
     }, None
 
-# ─── SESSION STATE ───────────────────────────────────────────────
+# ─── TABLES ──────────────────────────────────────────────────────
 platforms = ["Vinted", "eBay", "Other/Retail"]
 if "tables" not in st.session_state:
     st.session_state.tables = {}
@@ -88,7 +87,7 @@ if "tables" not in st.session_state:
 
 # ─── ENTRY FORM ──────────────────────────────────────────────────
 with st.expander("➕ Add New WTB Entry", expanded=True):
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     with col1:
         sku = st.text_input("SKU")
         size = st.text_input("UK Size")
@@ -122,54 +121,32 @@ tab_vinted, tab_ebay, tab_other, tab_fast, tab_strong, tab_slow, tab_dashboard =
     "Vinted", "eBay", "Other/Retail", "Fast Movers", "Strong Return", "Slower Movers", "Dashboard"
 ])
 
-def style_priority(df):
-    def color_row(row):
-        if row["Priority"] == "High":
-            return ['background-color: #ffcccc'] * len(row)
-        elif row["Priority"] == "Medium":
-            return ['background-color: #ffffcc'] * len(row)
-        else:
-            return [''] * len(row)
-    return df.style.apply(color_row, axis=1)
-
-# Vinted Tab
-with tab_vinted:
-    st.subheader("Vinted")
-    df = st.session_state.tables["Vinted"].sort_values("ROI %", ascending=False)
-    st.data_editor(df, num_rows="dynamic", use_container_width=True, key="vinted_editor")
-
-# eBay Tab
-with tab_ebay:
-    st.subheader("eBay")
-    df = st.session_state.tables["eBay"].sort_values("ROI %", ascending=False)
-    st.data_editor(df, num_rows="dynamic", use_container_width=True, key="ebay_editor")
-
-# Other/Retail Tab
-with tab_other:
-    st.subheader("Other/Retail")
-    df = st.session_state.tables["Other/Retail"].sort_values("ROI %", ascending=False)
-    st.data_editor(df, num_rows="dynamic", use_container_width=True, key="other_editor")
+for tab, p in zip([tab_vinted, tab_ebay, tab_other], platforms):
+    with tab:
+        st.subheader(p)
+        df = st.session_state.tables[p].sort_values("ROI %", ascending=False)
+        st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"{p}_editor")
 
 # Fast Movers
 with tab_fast:
     st.subheader("Fast Movers (<15 days + ≥25% ROI)")
     all_df = pd.concat(st.session_state.tables.values(), ignore_index=True)
     fast = all_df[(all_df["Est Days to Sell"] < 15) & (all_df["ROI %"] >= 25)].sort_values("ROI %", ascending=False)
-    st.data_editor(fast, num_rows="dynamic", use_container_width=True, key="fast_editor")
+    st.data_editor(fast, num_rows="dynamic", use_container_width=True)
 
 # Strong Return
 with tab_strong:
     st.subheader("Strong Return (≥30% ROI & <30 days)")
     all_df = pd.concat(st.session_state.tables.values(), ignore_index=True)
     strong = all_df[(all_df["ROI %"] >= 30) & (all_df["Est Days to Sell"] < 30)].sort_values("ROI %", ascending=False)
-    st.data_editor(strong, num_rows="dynamic", use_container_width=True, key="strong_editor")
+    st.data_editor(strong, num_rows="dynamic", use_container_width=True)
 
 # Slower Movers
 with tab_slow:
     st.subheader("Slower Movers (≥30% ROI & >30 days)")
     all_df = pd.concat(st.session_state.tables.values(), ignore_index=True)
     slow = all_df[(all_df["ROI %"] >= 30) & (all_df["Est Days to Sell"] >= 30)].sort_values("ROI %", ascending=False)
-    st.data_editor(slow, num_rows="dynamic", use_container_width=True, key="slow_editor")
+    st.data_editor(slow, num_rows="dynamic", use_container_width=True)
 
 # Dashboard
 with tab_dashboard:
@@ -190,4 +167,4 @@ if st.button("Export All Tables to CSV"):
     all_df = pd.concat(st.session_state.tables.values(), ignore_index=True)
     st.download_button("Download CSV", all_df.to_csv(index=False), "wtb_tracker.csv")
 
-st.caption("Priority: Low / Medium / High • Click trash icon to delete rows • Tables sorted by highest ROI%")
+st.caption("Priority: Low / Medium / High • Click the trash icon on the left to delete rows • Tables sorted by highest ROI%")
