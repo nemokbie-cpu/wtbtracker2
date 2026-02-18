@@ -59,8 +59,6 @@ def analyze_sales(raw_text, sku, brand, model, colorway, size, listed_price, pla
     rec_price = round(avg_net / (1 + roi_target), 2) if avg_net > 0 else 0
     roi_pct = round((avg_net - listed_price) / listed_price * 100, 1) if listed_price > 0 else 0
 
-    roi_on_avg_payout = round((avg_net / listed_price) * 100, 1) if platform == "Other/Retail" and listed_price > 0 else "—"
-
     return {
         "SKU": sku,
         "Brand": brand or "Manual",
@@ -71,24 +69,21 @@ def analyze_sales(raw_text, sku, brand, model, colorway, size, listed_price, pla
         "Platform": platform,
         "Priority": priority,
         "#Sales 120D": n,
-        "Avg Sale £": round(avg_sale, 2),
         "Avg Payout £": round(avg_net, 2),
         "ROI %": roi_pct,
         "Highest Bid": highest_bid if highest_bid > 0 else "—",
         "Recommended Pay £": rec_price if platform != "Other/Retail" else "—",
-        "ROI on Avg Payout %": roi_on_avg_payout,
         "Est Days to Sell": round(est_days, 1)
     }, None
 
-# ─── SESSION STATE TABLES ────────────────────────────────────────
+# ─── SESSION STATE ───────────────────────────────────────────────
 platforms = ["Vinted", "eBay", "Other/Retail"]
 if "tables" not in st.session_state:
     st.session_state.tables = {}
     for p in platforms:
         st.session_state.tables[p] = pd.DataFrame(columns=[
             "SKU", "Brand", "Model", "Colorway", "Size", "Listed Price", "Platform", "Priority",
-            "#Sales 120D", "Avg Sale £", "Avg Payout £", "ROI %", "Highest Bid",
-            "Recommended Pay £", "ROI on Avg Payout %", "Est Days to Sell"
+            "#Sales 120D", "Avg Payout £", "ROI %", "Highest Bid", "Recommended Pay £", "Est Days to Sell"
         ])
 
 # ─── ENTRY FORM ──────────────────────────────────────────────────
@@ -127,19 +122,29 @@ tab_vinted, tab_ebay, tab_other, tab_fast, tab_strong, tab_slow, tab_dashboard =
     "Vinted", "eBay", "Other/Retail", "Fast Movers", "Strong Return", "Slower Movers", "Dashboard"
 ])
 
-# Vinted
+def style_priority(df):
+    def color_row(row):
+        if row["Priority"] == "High":
+            return ['background-color: #ffcccc'] * len(row)
+        elif row["Priority"] == "Medium":
+            return ['background-color: #ffffcc'] * len(row)
+        else:
+            return [''] * len(row)
+    return df.style.apply(color_row, axis=1)
+
+# Vinted Tab
 with tab_vinted:
     st.subheader("Vinted")
     df = st.session_state.tables["Vinted"].sort_values("ROI %", ascending=False)
     st.data_editor(df, num_rows="dynamic", use_container_width=True, key="vinted_editor")
 
-# eBay
+# eBay Tab
 with tab_ebay:
     st.subheader("eBay")
     df = st.session_state.tables["eBay"].sort_values("ROI %", ascending=False)
     st.data_editor(df, num_rows="dynamic", use_container_width=True, key="ebay_editor")
 
-# Other/Retail
+# Other/Retail Tab
 with tab_other:
     st.subheader("Other/Retail")
     df = st.session_state.tables["Other/Retail"].sort_values("ROI %", ascending=False)
@@ -185,4 +190,4 @@ if st.button("Export All Tables to CSV"):
     all_df = pd.concat(st.session_state.tables.values(), ignore_index=True)
     st.download_button("Download CSV", all_df.to_csv(index=False), "wtb_tracker.csv")
 
-st.caption("Priority: Low / Medium / High • Click the trash icon in the table to delete rows • Tables sorted by highest ROI%")
+st.caption("Priority: Low / Medium / High • Click trash icon to delete rows • Tables sorted by highest ROI%")
